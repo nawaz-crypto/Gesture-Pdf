@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AirPDF – Gesture Controlled PDF Presenter</title>
+  
+  <!-- Fonts & External Libraries -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+  
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Top Navigation Header -->
+  <header>
+    <div class="row header-left">
+      <div class="brand-wrap">
+        <div class="brand"><span>✋</span> Gesture<span>PDF</span></div>
+        <div id="doc-badge" class="doc-badge">
+          <span class="badge-dot"></span>
+          <span id="doc-title">Sample Deck</span>
+        </div>
+      </div>
+      <label class="btn">Open PDF<input type="file" id="file" accept="application/pdf" hidden></label>
+      <button id="b-thumbs">Pages</button>
+      <button id="b-about" class="btn-highlight">✨ Know About Project</button>
+    </div>
+
+    <!-- Center Pager (Strictly 50% Centered) -->
+    <div class="row pager header-center">
+      <button id="t-prev" style="border:0;background:none">◀</button>
+      <span style="font-size:12px;color:var(--mut)">Page</span>
+      <input id="jump" type="number" min="1" value="1">
+      <span id="total" style="font-size:12px">/ 4</span>
+      <button id="t-next" style="border:0;background:none">▶</button>
+      <span id="zoom-lbl">100%</span>
+      <button id="b-reset" style="border:0;background:none;text-decoration:underline">Reset</button>
+    </div>
+
+    <div class="row header-right">
+      <button id="b-panel">Hide panel (H)</button>
+      <button id="b-fs" class="primary">Fullscreen (F)</button>
+    </div>
+  </header>
+
+  <!-- Main Presentation & Camera Area -->
+  <main>
+    <section id="viewport">
+      <div id="wrap">
+        <div id="stage">
+          <canvas id="pdf"></canvas>
+        </div>
+      </div>
+    </section>
+    
+    <aside id="side">
+      <div class="row" style="justify-content:space-between">
+        <b style="font-size:13px">Gesture camera</b>
+        <span id="fps" style="font-size:11px;color:var(--mut)">0 FPS</span>
+      </div>
+      <div class="cam">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="radar"></canvas>
+        <div id="cam-prompt">
+          <b style="color:#e5e7eb">Camera access needed</b>
+          Your video stays in the browser. Nothing is uploaded.
+          <button id="b-cam" class="primary">Enable camera</button>
+        </div>
+      </div>
+      <div class="stats">
+        <div><span>Hand</span><span id="s-hand"><i class="dot"></i>Not found</span></div>
+        <div><span>Gesture</span><span id="s-gest">–</span></div>
+        <div><span>Pinch ratio</span><span id="s-pinch">–</span></div>
+      </div>
+      <div class="help">
+        <div><b>Move page:</b> show one open palm (4 fingers up). The page follows your hand: left, right, up, down.</div>
+        <div><b>Scroll:</b> show 2 fingers (index + middle) and move them up/down. The PDF scrolls vertically.</div>
+        <div><b>Change page:</b> thumb + index pinch ONLY. Pinch on the right side for next; left side for previous. Release to unlock the pinch trigger.</div>
+        <div><b>Zoom:</b> use both open palms. Move them apart to zoom in and closer to zoom out smoothly.</div>
+        <div><b>Lock:</b> show ONLY the pinky for 2 seconds to lock all gestures. Show only pinky for 2 seconds again to unlock.</div>
+      </div>
+      <div class="stats" style="gap:9px">
+        <div><span>Page turn</span><span style="color:#38bdf8">Thumb + index pinch</span></div>
+        <div><span>Reverse direction</span><input type="checkbox" id="set-rev"></div>
+        <div><span>Palm drag speed</span><input type="range" id="set-gain" min="0.5" max="3" step="0.1" style="width:110px"></div>
+      </div>
+      <button id="b-demo" style="margin-top:auto">Back to sample deck</button>
+    </aside>
+  </main>
+
+  <!-- Side Thumbnails Drawer -->
+  <div id="thumbs"></div>
+
+  <!-- Floating Quick Control Dock -->
+  <div id="dock">
+    <button id="d-prev">◀</button>
+    <span id="d-info" style="font-size:12px;min-width:48px;text-align:center">1 / 4</span>
+    <button id="d-next">▶</button>
+    <button id="d-zo">−</button>
+    <button id="d-zi">+</button>
+    <button id="d-su">▲</button>
+    <button id="d-sd">▼</button>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="toast"></div>
+
+  <!-- Bottom Developer Footer -->
+  <footer id="app-footer">
+    <div class="footer-content">
+      <div class="dev-tag">
+        Designed & Developed by <b>Nawaz Akram</b>
+      </div>
+      <div class="footer-links">
+        <a href="https://linkedin.com/in/nawazakram" target="_blank" rel="noopener noreferrer" class="f-link">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 10.9v8.37H9.2V10.9H6.46M7.83 6.45a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2Z"/></svg>
+          LinkedIn
+        </a>
+        <span class="f-sep">•</span>
+        <a href="https://github.com/nawazakram" target="_blank" rel="noopener noreferrer" class="f-link">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.1-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2Z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- About Project & Technical Architecture Modal -->
+  <div id="about-modal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2>AirPDF – Technical Overview & Architecture</h2>
+          <p>Real-time client-side computer vision & deterministic gesture engine</p>
+        </div>
+        <button id="modal-close" class="modal-close">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Developer Profile Header Card -->
+        <div class="dev-badge">
+          <div class="dev-avatar">👨‍💻</div>
+          <div class="dev-info">
+            <span class="dev-label">PROJECT LEAD & ARCHITECT</span>
+            <h3>Nawaz Akram</h3>
+            <p>Data Science & Computer Vision Engineer | AirPDF Project</p>
+          </div>
+        </div>
+
+        <section class="doc-sec">
+          <h3>1. Project Overview</h3>
+          <p>AirPDF is a completely browser-based, touchless presentation tool enabling frictionless PDF navigation via webcam-based computer vision. Everything runs client-side with zero latency and strict privacy (no video streaming to external servers).</p>
+        </section>
+
+        <section class="doc-sec">
+          <h3>2. Core Technology Stack</h3>
+          <ul>
+            <li><b>Google MediaPipe Hands API:</b> Real-time 21 3D hand skeletal landmark extraction.</li>
+            <li><b>Mozilla PDF.js:</b> Client-side PDF parsing and vector rasterization.</li>
+            <li><b>HTML5 Canvas 2D API:</b> Dynamic coordinate radar and math slide rendering.</li>
+            <li><b>Hardware Accelerated CSS3 Transforms:</b> 60 FPS viewport manipulation via GPU matrix transforms (`scale`, `translate3d`).</li>
+            <li><b>Web Storage API:</b> Persistent configuration storage for axis inversions and sensor gains.</li>
+          </ul>
+        </section>
+
+        <section class="doc-sec">
+          <h3>3. Mathematical Foundations & Gesture Logic</h3>
+          <p>Unlike probabilistic gesture classifiers that suffer from high false-positive rates, AirPDF uses deterministic spatial geometry and threshold mathematics:</p>
+
+          <div class="math-card">
+            <span class="math-title">A. Euclidean Distance Metric</span>
+            <div class="math-code">d(p₁, p₂) = √[(x₂ - x₁)² + (y₂ - y₁)²]</div>
+            <p>Applied to normalize coordinates across varying webcam aspect ratios and distances from camera.</p>
+          </div>
+
+          <div class="math-card">
+            <span class="math-title">B. Finger Extension Detection</span>
+            <div class="math-code">isExtended(tip, pip) = d(LM_tip, LM₀) &gt; 1.12 × d(LM_pip, LM₀)</div>
+            <p>Measures the distance from wrist root (LM₀) to fingertip versus the proximal interphalangeal joint (PIP). Evaluated across index (8), middle (12), ring (16), and pinky (20).</p>
+          </div>
+
+          <div class="math-card">
+            <span class="math-title">C. Strict Pinch Detection (Anti-Fist Math)</span>
+            <div class="math-code">Pinch_Ratio = d(LM₄, LM₈) / Hand_Scale &lt; 0.38
+Hand_Scale = d(LM₀, LM₉)
+Condition = Pinch_Ratio &amp;&amp; !middle &amp;&amp; !ring &amp;&amp; !pinky</div>
+            <p>A closed fist is completely rejected because index and thumb ready-extension gates must be verified while the remaining 3 fingers stay folded.</p>
+          </div>
+
+          <div class="math-card">
+            <span class="math-title">D. Zoned Screen Partitioning (Page Turning)</span>
+            <div class="math-code">x_screen = 1 - [(LM₄.x + LM₈.x) / 2]
+Zone = { Previous: x &lt; 0.24, Next: x &gt; 0.76, DeadZone: 0.24 ≤ x ≤ 0.76 }</div>
+            <p>The viewport center 52% is an inactive dead-zone to prevent accidental page triggers during gestures. Latches via single-shot flag (`pinchTriggered`) to prevent multi-page runaway flips.</p>
+          </div>
+
+          <div class="math-card">
+            <span class="math-title">E. Exponential Moving Average (EMA) & Jitter Filter</span>
+            <div class="math-code">S_t = S_{t-1} + α · (X_t - S_{t-1})    [α = 0.20 for Zoom, 0.30 for Pan]
+Delta_Threshold: |Δ| &gt; 0.006</div>
+            <p>Suppresses camera sensor noise, micro-jitters, and hand tremors without inducing motion lag.</p>
+          </div>
+
+          <div class="math-card">
+            <span class="math-title">F. 2.0s Temporal Pinky Safety Lock</span>
+            <div class="math-code">Δt = t_now - t_pinky_start ≥ 2000 ms (Pose == 'pinky' only)</div>
+            <p>Allows presenters to talk freely with natural hand movements by toggling a complete gesture lockout state.</p>
+          </div>
+        </section>
+
+        <section class="doc-sec">
+          <h3>4. High-Performance PDF Rendering</h3>
+          <ul>
+            <li><b>Pre-Rasterized Backing Canvas:</b> Avoids PDF canvas re-render calls on zoom/pan gestures, eliminating screen freezing and white flashes.</li>
+            <li><b>Async Render Locks:</b> Promise-based render queue (`busy` & `again` flags) manages rapid page flips without race conditions.</li>
+          </ul>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Script -->
+  <script src="app.js"></script>
+</body>
+</html>
